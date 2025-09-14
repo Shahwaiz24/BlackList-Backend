@@ -13,24 +13,39 @@ export interface RequestUser {
 }
 
 export interface User {
-    id: string;
+    userId: string;
     email: string;
     verified: boolean;
+    role: "user" | "admin";
+    password: string;
     firstname: string;
     lastname: string;
     createdAt: string;
     brand: Brand;
-    refferals: Refferals
+    refferals: Refferals;
+    billingdata: UserBillingData;
 }
 
 export interface InsertedUser {
-    id: string;
+    userId: string;
     email: string;
     verified: boolean;
+    role: "user" | "admin";
+    password: string;
     firstname: string;
     lastname: string;
     createdAt: string;
     brandid: string;
     refferalsid: string;
+    billingdata: UserBillingData;
 }
+
+export interface UserBillingData {
+    accountname: string;
+    accountnumber: string;
+    expirydate: string;
+    cvv: string;
+}
+
+
 

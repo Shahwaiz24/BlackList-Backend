@@ -3,6 +3,46 @@ import { User } from "../../models/User.js";
 
 class UserService {
 
+    // Generate unique userId in format USR001A2B
+    static async generateUniqueUserId(): Promise<string> {
+        try {
+            let attempts = 0;
+            const maxAttempts = 100;
+
+            while (attempts < maxAttempts) {
+                // Generate random 3-digit number (001-999)
+                const numPart = Math.floor(Math.random() * 999) + 1;
+                const paddedNum = numPart.toString().padStart(3, '0');
+
+                // Generate random 3-character alphanumeric (A2B)
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let alphaPart = '';
+                for (let i = 0; i < 3; i++) {
+                    alphaPart += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+
+                const userId = `USR${paddedNum}${alphaPart}`;
+
+                // Check if userId already exists in cache
+                const existingUser = await CacheService.getUser(userId);
+                if (!existingUser) {
+                    return userId;
+                }
+
+                attempts++;
+            }
+
+            // Fallback: use timestamp if all attempts failed
+            const timestamp = Date.now().toString().slice(-6);
+            return `USR${timestamp}`;
+        } catch (error) {
+            console.error('Error generating unique userId:', error);
+            // Emergency fallback
+            const emergency = Date.now().toString().slice(-9);
+            return `USR${emergency}`;
+        }
+    }
+
     // Get all users with pagination using cache service
     static async getAllUsersPaginated(page: number = 1, limit: number = 10): Promise<{ users: User[]; total: number; totalPages: number; currentPage: number } | null> {
         try {
@@ -81,7 +121,7 @@ class UserService {
                 if (brand && brand.products) {
                     // Delete all brand products from cache
                     for (const product of brand.products) {
-                        await CacheService.deleteProduct(product.id);
+                        await CacheService.deleteProduct(product.productId);
                     }
                 }
 
@@ -104,6 +144,37 @@ class UserService {
             };
         }
     }
+    static async isUserEmailExist(email: string): Promise<boolean> {
+        try {
+            if (!email) {
+                return false;
+            }
+
+            let currentPage = 1;
+            let limit = 100;
+            let userData = await this.getAllUsersPaginated(currentPage, limit);
+            while (userData?.totalPages && currentPage <= userData.totalPages) {
+                const allUsers = userData?.users ?? [];
+                for (const user of allUsers) {
+                    if (user.email === email) {
+                        return true;
+                    }
+                }
+                currentPage++;
+                userData = await this.getAllUsersPaginated(currentPage, limit);
+
+                // Break if no more users or no totalPages info
+                if (!userData || !userData.users || userData.users.length === 0) {
+                    break;
+                }
+            }
+            return false;
+        } catch (error) {
+            console.error('Check user email exist error:', error);
+            return false;
+        }
+    }
+
 }
 
 export default UserService;

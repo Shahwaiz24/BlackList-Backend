@@ -1,5 +1,8 @@
 import { createClient, RedisClientType } from "redis";
 import { encryptData, decryptData } from "securex";
+import { User } from "../../models/User.js";
+import { Brand } from "../../models/Brand.js";
+import { Product } from "../../models/Product.js";
 import DBService from "../DB/dbService.js";
 
 /**
@@ -10,7 +13,7 @@ import DBService from "../DB/dbService.js";
  */
 class CacheService {
     private static redisClient: RedisClientType | null = null;
-    private static readonly TTL = 21600; // 6 hours
+    private static readonly TTL = 7200; // 2 hours
     private static isConnecting = false;
     private static connectionPromise: Promise<RedisClientType> | null = null;
 
@@ -90,6 +93,41 @@ class CacheService {
         }
     }
 
+    // Helper method to populate brand with products using DBService
+    private static async populateBrandProducts(insertedBrand: any): Promise<Brand> {
+        try {
+            // Use DBService to get populated brand instead of direct DB access
+            const populatedBrand = await DBService.findBrandWithProducts(insertedBrand.brandid);
+
+            if (populatedBrand) {
+                return populatedBrand as Brand;
+            }
+
+            // Fallback: return brand without products
+            return {
+                brandid: insertedBrand.brandid,
+                name: insertedBrand.name,
+                yearfounded: insertedBrand.yearfounded,
+                description: insertedBrand.description,
+                logourl: insertedBrand.logourl,
+                distributionstates: insertedBrand.distributionstates,
+                products: []
+            };
+        } catch (error) {
+            console.error('Error populating brand products:', error);
+            // Return brand without products on error
+            return {
+                brandid: insertedBrand.brandid,
+                name: insertedBrand.name,
+                yearfounded: insertedBrand.yearfounded,
+                description: insertedBrand.description,
+                logourl: insertedBrand.logourl,
+                distributionstates: insertedBrand.distributionstates,
+                products: []
+            };
+        }
+    }
+
     // Encryption helper methods
     private static async encryptCacheData(data: any): Promise<string> {
         try {
@@ -118,7 +156,7 @@ class CacheService {
     }
 
     // User cache methods
-    static async getUser(userId: string): Promise<any> {
+    static async getUser(userId: string): Promise<User | null> {
         if (!userId || typeof userId !== 'string') {
             throw new Error('Invalid user ID provided');
         }
@@ -137,10 +175,11 @@ class CacheService {
         }
 
         try {
-            const dbUser = await DBService.findById('users', userId);
+            const dbUser = await DBService.findByField('users', 'userId', userId);
             if (dbUser) {
-                await this.setUser(userId, dbUser);
-                return dbUser;
+                const userObj = dbUser as unknown as User;
+                await this.setUser(userId, userObj);
+                return userObj;
             }
             return null;
         } catch (error) {
@@ -149,13 +188,13 @@ class CacheService {
         }
     }
 
-    static async setUser(userId: string, userData: any): Promise<void> {
+    static async setUser(userId: string, userData: User): Promise<void> {
         if (!userId || typeof userId !== 'string') {
             throw new Error('Invalid user ID provided');
         }
 
-        if (!userData) {
-            throw new Error('User data cannot be null or undefined');
+        if (!userData || typeof userData !== 'object') {
+            throw new Error('User data must be a valid User object');
         }
 
         const key = `user:${userId}`;
@@ -184,8 +223,8 @@ class CacheService {
         }
     }
 
-    // Product cache methods
-    static async getProduct(productId: string): Promise<any> {
+    // Product cache methods - searches within product documents
+    static async getProduct(productId: string): Promise<Product | null> {
         if (!productId || typeof productId !== 'string') {
             throw new Error('Invalid product ID provided');
         }
@@ -204,10 +243,12 @@ class CacheService {
         }
 
         try {
-            const dbProduct = await DBService.findById('products', productId);
-            if (dbProduct) {
-                await this.setProduct(productId, dbProduct);
-                return dbProduct;
+            // Use DBService to find product instead of direct DB access
+            const product = await DBService.findProductById(productId);
+
+            if (product) {
+                await this.setProduct(productId, product as Product);
+                return product as Product;
             }
             return null;
         } catch (error) {
@@ -216,13 +257,13 @@ class CacheService {
         }
     }
 
-    static async setProduct(productId: string, productData: any): Promise<void> {
+    static async setProduct(productId: string, productData: Product): Promise<void> {
         if (!productId || typeof productId !== 'string') {
             throw new Error('Invalid product ID provided');
         }
 
-        if (!productData) {
-            throw new Error('Product data cannot be null or undefined');
+        if (!productData || typeof productData !== 'object') {
+            throw new Error('Product data must be a valid Product object');
         }
 
         const key = `product:${productId}`;
@@ -252,7 +293,7 @@ class CacheService {
     }
 
     // Brand cache methods
-    static async getBrand(brandId: string): Promise<any> {
+    static async getBrand(brandId: string): Promise<Brand | null> {
         if (!brandId || typeof brandId !== 'string') {
             throw new Error('Invalid brand ID provided');
         }
@@ -271,10 +312,12 @@ class CacheService {
         }
 
         try {
-            const dbBrand = await DBService.findById('brands', brandId);
+            const dbBrand = await DBService.findByField('brands', 'brandid', brandId);
             if (dbBrand) {
-                await this.setBrand(brandId, dbBrand);
-                return dbBrand;
+                // Get complete brand with populated products
+                const completeUser = await this.populateBrandProducts(dbBrand as any);
+                await this.setBrand(brandId, completeUser);
+                return completeUser;
             }
             return null;
         } catch (error) {
@@ -283,13 +326,13 @@ class CacheService {
         }
     }
 
-    static async setBrand(brandId: string, brandData: any): Promise<void> {
+    static async setBrand(brandId: string, brandData: Brand): Promise<void> {
         if (!brandId || typeof brandId !== 'string') {
             throw new Error('Invalid brand ID provided');
         }
 
-        if (!brandData) {
-            throw new Error('Brand data cannot be null or undefined');
+        if (!brandData || typeof brandData !== 'object') {
+            throw new Error('Brand data must be a valid Brand object');
         }
 
         const key = `brand:${brandId}`;
@@ -319,7 +362,7 @@ class CacheService {
     }
 
     // Paginated cache methods
-    static async getAllUsers(page: number = 1, limit: number = 10): Promise<any[]> {
+    static async getAllUsers(page: number = 1, limit: number = 10): Promise<User[]> {
         if (page < 1 || limit < 1 || limit > 100) {
             throw new Error('Invalid pagination parameters: page must be >= 1, limit must be 1-100');
         }
@@ -338,11 +381,8 @@ class CacheService {
         }
 
         try {
-            const skip = (page - 1) * limit;
-            const database = await import("../../config/db.js");
-            const db = await database.default.getDatabase();
-            const collection = db.collection('users');
-            const dbUsers = await collection.find({}).skip(skip).limit(limit).toArray();
+            // Use DBService for paginated data instead of direct DB access
+            const dbUsers = await DBService.findPaginated('users', page, limit);
 
             if (dbUsers && dbUsers.length > 0) {
                 try {
@@ -354,14 +394,14 @@ class CacheService {
                 }
             }
 
-            return dbUsers || [];
+            return (dbUsers as unknown as User[]) || [];
         } catch (error) {
             console.error('Database get all users error:', error);
             throw new Error(`Failed to retrieve users for page ${page}`);
         }
     }
 
-    static async getAllProducts(page: number = 1, limit: number = 10): Promise<any[]> {
+    static async getAllProducts(page: number = 1, limit: number = 10): Promise<Product[]> {
         if (page < 1 || limit < 1 || limit > 100) {
             throw new Error('Invalid pagination parameters: page must be >= 1, limit must be 1-100');
         }
@@ -380,12 +420,8 @@ class CacheService {
         }
 
         try {
-            // Fallback to Database
-            const skip = (page - 1) * limit;
-            const database = await import("../../config/db.js");
-            const db = await database.default.getDatabase();
-            const collection = db.collection('products');
-            const dbProducts = await collection.find({}).skip(skip).limit(limit).toArray();
+            // Use DBService for paginated data instead of direct DB access
+            const dbProducts = await DBService.findPaginated('products', page, limit);
 
             if (dbProducts && dbProducts.length > 0) {
                 try {
@@ -397,14 +433,14 @@ class CacheService {
                 }
             }
 
-            return dbProducts || [];
+            return (dbProducts as unknown as Product[]) || [];
         } catch (error) {
             console.error('Database get all products error:', error);
             throw new Error(`Failed to retrieve products for page ${page}`);
         }
     }
 
-    static async getAllBrands(page: number = 1, limit: number = 10): Promise<any[]> {
+    static async getAllBrands(page: number = 1, limit: number = 10): Promise<Brand[]> {
         if (page < 1 || limit < 1 || limit > 100) {
             throw new Error('Invalid pagination parameters: page must be >= 1, limit must be 1-100');
         }
@@ -423,12 +459,8 @@ class CacheService {
         }
 
         try {
-            // Fallback to Database
-            const skip = (page - 1) * limit;
-            const database = await import("../../config/db.js");
-            const db = await database.default.getDatabase();
-            const collection = db.collection('brands');
-            const dbBrands = await collection.find({}).skip(skip).limit(limit).toArray();
+            // Use DBService for paginated data instead of direct DB access
+            const dbBrands = await DBService.findPaginated('brands', page, limit);
 
             if (dbBrands && dbBrands.length > 0) {
                 try {
@@ -440,7 +472,7 @@ class CacheService {
                 }
             }
 
-            return dbBrands || [];
+            return (dbBrands as unknown as Brand[]) || [];
         } catch (error) {
             console.error('Database get all brands error:', error);
             throw new Error(`Failed to retrieve brands for page ${page}`);

@@ -18,7 +18,7 @@ const options: MongoClientOptions = {
     connectTimeoutMS: 20000,
     socketTimeoutMS: 60000,
     serverSelectionTimeoutMS: 10000,
-    maxPoolSize: 10,
+    maxPoolSize: 5,
 };
 
 let client: MongoClient | null = null;
@@ -34,17 +34,34 @@ class DatabaseConfig {
             try {
                 client = new MongoClient(MONGO_URI, options);
                 await client.connect();
+
+                // Test the connection
+                await client.db(DB_NAME).admin().ping();
+
                 database = client.db(DB_NAME);
                 logger.info("Database connected successfully");
+
                 process.on("SIGINT", DatabaseConfig.closeConnection);
                 process.on("SIGTERM", DatabaseConfig.closeConnection);
                 return database;
-            } catch (error) {
-                logger.error(`Database connection attempt ${attempt} failed: ${error}`);
+            } catch (error: any) {
+                logger.error(`Database connection attempt ${attempt} failed:`, error?.message ?? error);
+
+                // Clean up failed connection
+                if (client) {
+                    try {
+                        await client.close();
+                    } catch (closeError) {
+                        logger.error("Error closing failed connection:", closeError);
+                    }
+                    client = null;
+                    database = null;
+                }
+
                 if (attempt < retries) {
                     await new Promise(res => setTimeout(res, delay));
                 } else {
-                    throw new Error("Failed to connect to database after multiple attempts.");
+                    throw new Error(`Failed to connect to database after ${retries} attempts. Last error: ${error?.message ?? "Unknown error"}`);
                 }
             }
         }
@@ -59,9 +76,9 @@ class DatabaseConfig {
     }
 
     static async isConnected(): Promise<boolean> {
-        if (!client) return false;
+        if (!client || !database) return false;
         try {
-            await client.db().admin().ping();
+            await client.db(DB_NAME).admin().ping();
             return true;
         } catch {
             return false;
@@ -69,9 +86,15 @@ class DatabaseConfig {
     }
 
     static async closeConnection() {
-        if (client) {
-            await client.close();
-            logger.info("Database connection closed.");
+        try {
+            if (client) {
+                await client.close();
+                logger.info("Database connection closed");
+                client = null;
+                database = null;
+            }
+        } catch (error: any) {
+            logger.error("Error closing database connection:", error?.message ?? "Unknown error");
             client = null;
             database = null;
         }

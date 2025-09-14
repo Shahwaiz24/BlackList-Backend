@@ -1,4 +1,5 @@
 import { Product } from "./Product";
+
 export interface RequestBrand {
     name: string;
     yearfounded?: string;
@@ -15,4 +16,14 @@ export interface Brand {
     logourl: string;
     distributionstates: string[]
     products: Product[]
+}
+
+export interface InsertedBrand {
+    brandid: string;
+    name: string;
+    yearfounded?: string;
+    description?: string;
+    logourl: string;
+    distributionstates: string[]
+    productsdocid: string
 }

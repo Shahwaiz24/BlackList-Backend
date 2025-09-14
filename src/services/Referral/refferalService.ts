@@ -1,5 +1,5 @@
 import CacheService from "../Cache/cacheService.js";
-import DBService from "../DB/dbService.js";
+import KafkaService from "../Kafka/kafkaService.js";
 import { Refferals } from "../../models/Refferals.js";
 import { User } from "../../models/User.js";
 
@@ -134,21 +134,14 @@ class ReferralService {
             referralOwner.refferals.refferalusers.push(newReferredUser);
 
             // Update cache with new data
-            await CacheService.setUser(referralOwner.id, referralOwner);
+            await CacheService.setUser(referralOwner.userId, referralOwner);
 
-            // Update database
-            const updateResult = await DBService.updateById('users', referralOwner.id, referralOwner);
-
-            if (updateResult && updateResult.modifiedCount > 0) {
-                return {
-                    success: true,
-                    message: 'User added to referral successfully'
-                };
-            }
+            // Send Kafka event for background database update (proper flow)
+            await KafkaService.sendUserUpdateEvent(referralOwner.userId, referralOwner);
 
             return {
-                success: false,
-                message: 'Failed to update referral'
+                success: true,
+                message: 'User added to referral successfully'
             };
         } catch (error) {
             console.error('Add referral user error:', error);
@@ -173,7 +166,7 @@ class ReferralService {
             for (const user of users) {
                 if (user.refferals && user.refferals.userrefferalcode === referralCode) {
                     // Cache individual user for future getUser calls
-                    await CacheService.setUser(user.id, user);
+                    await CacheService.setUser(user.userId, user);
                     return user as User;
                 }
             }
@@ -189,7 +182,7 @@ class ReferralService {
                 for (const user of moreUsers) {
                     if (user.refferals && user.refferals.userrefferalcode === referralCode) {
                         // Cache individual user for future getUser calls
-                        await CacheService.setUser(user.id, user);
+                        await CacheService.setUser(user.userId, user);
                         return user as User;
                     }
                 }

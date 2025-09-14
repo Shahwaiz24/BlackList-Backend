@@ -5,9 +5,14 @@ export interface RequestProduct {
 }
 
 export interface Product {
-    id: string;
+    productId: string;
     name: string;
-    brandid: string;
     description: string;
     categoryid: string;
+}
+
+export interface InsertedProductDoc {
+    productdocid: string;
+    brandid: string;
+    productList: Product[]
 }
